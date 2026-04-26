@@ -26,15 +26,18 @@
 #define HAVE_BUTTONS 0
 #define USE_NEW_OLED_MENU 1
 
+#define DISABLE_OLED_CODE 1
+
 
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
 
+#if !DISABLE_OLED_CODE
 SSD1306Wire display(0x3c, D2, D1); //inits I2C address & pins for OLED
 const int pin_clk = 14;            //D5 = GPIO14 (input of one direction for encoder)
 const int pin_data = 13;           //D7 = GPIO13	(input of one direction for encoder)
 const int pin_switch = 0;          //D3 = GPIO0 pulled HIGH, else boot fail (middle push button for encoder)
-
+#endif
 
 #if USE_NEW_OLED_MENU
 #include "OLEDMenuImplementation.h"
@@ -7191,6 +7194,7 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
 
 void setup()
 {
+#if !DISABLE_OLED_CODE
     display.init();                 //inits OLED on I2C bus
     display.flipScreenVertically(); //orientation fix for OLED
 
@@ -7206,6 +7210,7 @@ void setup()
 #else
     // ISR TO PIN
     attachInterrupt(digitalPinToInterrupt(pin_clk), isrRotaryEncoder, FALLING);
+#endif
 #endif
 
     rto->webServerEnabled = true;
@@ -7307,12 +7312,16 @@ void setup()
     unsigned long initDelay = millis();
     // upped from < 500 to < 1500, allows more time for wifi and GBS startup
     while (millis() - initDelay < 1500) {
+#if !DISABLE_OLED_CODE
         display.drawXbm(2, 2, gbsicon_width, gbsicon_height, gbsicon_bits);
         display.display();
+#endif
         handleWiFi(0);
         delay(1);
     }
+#if !DISABLE_OLED_CODE
     display.clear();
+#endif
     // if i2c established and chip running, issue software reset now
     GBS::RESET_CONTROL_0x46::write(0);
     GBS::RESET_CONTROL_0x47::write(0);
@@ -7539,6 +7548,7 @@ void setup()
     }
 }
 
+#if !DISABLE_OLED_CODE
 #if HAVE_BUTTONS
 #define INPUT_SHIFT 0
 #define DOWN_SHIFT 1
@@ -7599,6 +7609,7 @@ void handleButtons(void)
         Menu::run(MenuInput::FORWARD);
 #endif
 }
+#endif
 #endif
 
 void discardSerialRxData()
@@ -7761,6 +7772,7 @@ void loop()
     static unsigned long lastTimeSourceCheck = 500; // 500 to start right away (after setup it will be 2790ms when we get here)
     static unsigned long lastTimeInterruptClear = millis();
 
+#if !DISABLE_OLED_CODE
 #if HAVE_BUTTONS
     static unsigned long lastButton = micros();
     if (micros() - lastButton > buttonPollInterval) {
@@ -7783,6 +7795,7 @@ void loop()
     if (oled_encoder_pos != oled_lastCount) {
         oled_lastCount = oled_encoder_pos;
     }
+#endif
 #endif
 
     handleWiFi(0); // WiFi + OTA + WS + MDNS, checks for server enabled + started
@@ -10198,6 +10211,7 @@ void saveUserPrefs()
 
 #endif
 
+#if !DISABLE_OLED_CODE
 #if !USE_NEW_OLED_MENU
 //OLED Functionality
 void settingsMenuOLED()
@@ -10809,4 +10823,5 @@ void subpointerfunction()
         oled_pointer_count = 7;
     }
 }
+#endif
 #endif
