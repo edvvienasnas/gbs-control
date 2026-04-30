@@ -26,18 +26,30 @@
 #define HAVE_BUTTONS 0
 #define USE_NEW_OLED_MENU 1
 
-#define DISABLE_OLED_CODE 1
+// Optional add-ons that use the same GPIO pins
+// Only enable one at a time!!
+#define ENABLE_BASIC_CONTROLS 1
+#define ENABLE_OLED 0
 
+#if ENABLE_BASIC_CONTROLS
+const int pin_extclk = 0;   //D3 = GPIO0 pulled HIGH, else boot fail (input for toggling external clock push button)
+const int pin_asprect = 2;  //D4 = GPIO2 pulled HIGH, else boot fail (input for toggling aspect ratio push button)
+
+int extclkLastState = LOW;  // Previous state of pin_extclk
+int extclkCurrentState;     // Current state of pin_extclk
+
+int asprectLastState = LOW;  // Previous state of pin_asprect
+int asprectCurrentState;     // Current state of pin_asprect
+#endif
 
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
 
-#if !DISABLE_OLED_CODE
+#if ENABLE_OLED
 SSD1306Wire display(0x3c, D2, D1); //inits I2C address & pins for OLED
 const int pin_clk = 14;            //D5 = GPIO14 (input of one direction for encoder)
 const int pin_data = 13;           //D7 = GPIO13	(input of one direction for encoder)
 const int pin_switch = 0;          //D3 = GPIO0 pulled HIGH, else boot fail (middle push button for encoder)
-#endif
 
 #if USE_NEW_OLED_MENU
 #include "OLEDMenuImplementation.h"
@@ -62,6 +74,7 @@ volatile int oled_encoder_pos = 0;
 volatile int oled_main_pointer = 0; // volatile vars change done with ISR
 volatile int oled_pointer_count = 0;
 volatile int oled_sub_pointer = 0;
+#endif
 #endif
 #include <ESP8266WiFi.h>
 // ESPAsyncTCP and ESPAsyncWebServer libraries by me-no-dev
@@ -7127,6 +7140,7 @@ void loadDefaultUserOptions()
 //  system_phy_set_powerup_option(0);
 //}
 
+#if ENABLE_OLED
 #if !USE_NEW_OLED_MENU
 void ICACHE_RAM_ATTR isrRotaryEncoder()
 {
@@ -7191,10 +7205,16 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
     lastInterruptTime = interruptTime;
 }
 #endif
+#endif
 
 void setup()
 {
-#if !DISABLE_OLED_CODE
+#if ENABLE_BASIC_CONTROLS
+    pinMode(pin_extclk , INPUT_PULLUP);
+    pinMode(pin_asprect, INPUT_PULLUP);
+#endif
+
+#if ENABLE_OLED
     display.init();                 //inits OLED on I2C bus
     display.flipScreenVertically(); //orientation fix for OLED
 
@@ -7312,14 +7332,14 @@ void setup()
     unsigned long initDelay = millis();
     // upped from < 500 to < 1500, allows more time for wifi and GBS startup
     while (millis() - initDelay < 1500) {
-#if !DISABLE_OLED_CODE
+#if ENABLE_OLED
         display.drawXbm(2, 2, gbsicon_width, gbsicon_height, gbsicon_bits);
         display.display();
 #endif
         handleWiFi(0);
         delay(1);
     }
-#if !DISABLE_OLED_CODE
+#if ENABLE_OLED
     display.clear();
 #endif
     // if i2c established and chip running, issue software reset now
@@ -7548,7 +7568,7 @@ void setup()
     }
 }
 
-#if !DISABLE_OLED_CODE
+#if ENABLE_OLED
 #if HAVE_BUTTONS
 #define INPUT_SHIFT 0
 #define DOWN_SHIFT 1
@@ -7761,6 +7781,22 @@ void myLog(char const* type, char command) {
         type, command, uopt->presetPreference, uopt->presetSlot, rto->presetID);
 }
 
+#if ENABLE_BASIC_CONTROLS
+void ReadButtonState(int pin, int &currentState, int &lastState)
+{
+    // Read the state of buttons
+    currentState = digitalRead(pin);
+
+    if (lastState == HIGH && currentState == LOW)
+        SerialM.println("The button is pressed");
+    else if (lastState == LOW && currentState == HIGH)
+        SerialM.println("The button is released");
+    
+    // save the the last state
+    lastState = currentState;
+}
+#endif
+
 void loop()
 {
     static uint8_t readout = 0;
@@ -7772,7 +7808,12 @@ void loop()
     static unsigned long lastTimeSourceCheck = 500; // 500 to start right away (after setup it will be 2790ms when we get here)
     static unsigned long lastTimeInterruptClear = millis();
 
-#if !DISABLE_OLED_CODE
+#if ENABLE_BASIC_CONTROLS
+    ReadButtonState(pin_extclk, extclkCurrentState, extclkLastState);
+    //ReadButtonState(pin_asprect, asprectCurrentState, asprectLastState);
+#endif
+
+#if ENABLE_OLED
 #if HAVE_BUTTONS
     static unsigned long lastButton = micros();
     if (micros() - lastButton > buttonPollInterval) {
@@ -10211,7 +10252,7 @@ void saveUserPrefs()
 
 #endif
 
-#if !DISABLE_OLED_CODE
+#if ENABLE_OLED
 #if !USE_NEW_OLED_MENU
 //OLED Functionality
 void settingsMenuOLED()
