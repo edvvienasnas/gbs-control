@@ -40,6 +40,9 @@ int extclkCurrentState;     // Current state of pin_extclk
 
 int asprectLastState = LOW;  // Previous state of pin_asprect
 int asprectCurrentState;     // Current state of pin_asprect
+
+unsigned long lastDebounceTime = 0; 
+unsigned long debounceDelay = 50;
 #endif
 
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
@@ -7782,18 +7785,36 @@ void myLog(char const* type, char command) {
 }
 
 #if ENABLE_BASIC_CONTROLS
-void ReadButtonState(int pin, int &currentState, int &lastState)
+void ReadButtonState(String button, int pin, int &currentState, int &lastState)
 {
     // Read the state of buttons
-    currentState = digitalRead(pin);
+    int reading = digitalRead(pin);
 
-    if (lastState == HIGH && currentState == LOW)
-        SerialM.println("The button is pressed");
-    else if (lastState == LOW && currentState == HIGH)
-        SerialM.println("The button is released");
+    // Button press detected? Record when it happenes
+    if (reading != lastState)
+    {
+        lastDebounceTime = millis();
+    }
+
+    if((millis() - lastDebounceTime) > debounceDelay)
+    {
+        if(reading != currentState)
+        {
+            currentState = reading;
+
+            if (currentState == LOW)
+            {
+                SerialM.println(button + " is pressed");
+            }
+            else if (currentState == HIGH)
+            {
+                SerialM.println(button + " is released");   
+            }
+        }
+    }
     
     // save the the last state
-    lastState = currentState;
+    lastState = reading;
 }
 #endif
 
@@ -7809,8 +7830,8 @@ void loop()
     static unsigned long lastTimeInterruptClear = millis();
 
 #if ENABLE_BASIC_CONTROLS
-    ReadButtonState(pin_extclk, extclkCurrentState, extclkLastState);
-    //ReadButtonState(pin_asprect, asprectCurrentState, asprectLastState);
+    ReadButtonState("External Clock Button", pin_extclk, extclkCurrentState, extclkLastState);
+    ReadButtonState("Aspect Ratio Button", pin_asprect, asprectCurrentState, asprectLastState);
 #endif
 
 #if ENABLE_OLED
