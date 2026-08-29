@@ -32,8 +32,8 @@
 #define ENABLE_OLED 0
 
 #if ENABLE_BASIC_CONTROLS
-const int pin_extclk = 0;   //D3 = GPIO0 pulled HIGH, else boot fail (input for toggling external clock push button)
-const int pin_asprect = 2;  //D4 = GPIO2 pulled HIGH, else boot fail (input for toggling aspect ratio push button)
+const int pin_extclk = 2;   //D3 = GPIO0 pulled HIGH, else boot fail
+const int pin_asprect = 0;  //D4 = GPIO2 pulled HIGH, else boot fail
 
 int extclkLastState = LOW;  // Previous state of pin_extclk
 int extclkCurrentState;     // Current state of pin_extclk
@@ -43,6 +43,10 @@ int asprectCurrentState;     // Current state of pin_asprect
 
 unsigned long lastDebounceTime = 0; 
 unsigned long debounceDelay = 50;
+
+bool asprectButtonPressed = false;
+uint8_t forcedSlot = 0;
+
 #endif
 
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
@@ -7808,7 +7812,11 @@ void ReadButtonState(String button, int pin, int &currentState, int &lastState)
             }
             else if (currentState == HIGH)
             {
-                SerialM.println(button + " is released");   
+                SerialM.println(button + " is released");
+                if(button == "Aspect Ratio Button")
+                {
+                    SwitchAspectRatio();
+                }
             }
         }
     }
@@ -7817,6 +7825,43 @@ void ReadButtonState(String button, int pin, int &currentState, int &lastState)
     lastState = reading;
 }
 #endif
+
+void SwitchAspectRatio()
+{
+    asprectButtonPressed = true;
+    
+    byte videoMode = rto->videoStandardInput;
+
+    // Video modes to preset files mapping:
+    // 1 - preset_ntsc.
+    // 2 - preset_pal.
+    // 3 - preset_ntsc_480p.
+    // 4 - preset_pal_576p.
+    // 5 - preset_ntsc_720p.
+    // 6 - preset_ntsc_1080p.
+    // 8 - preset_medium_res.
+    // 14 - preset_vga_upscale.
+    // 0 - preset_unknown.
+
+    if(videoMode == 2 || videoMode == 4)
+    {
+        // PAL preset slots: A = 65, B = 66
+        forcedSlot = (forcedSlot == 65) ? 66 : 65;
+        handleType2Command('3');
+    }
+    else if(videoMode == 1 || videoMode == 3 || videoMode == 5 || videoMode == 6)
+    {
+        // NTSC preset slots: C = 67, D = 68
+        forcedSlot = (forcedSlot == 67) ? 68 : 67;
+        handleType2Command('3');
+    }
+    else
+    {
+        asprectButtonPressed = false;
+
+        SerialM.println("Error switching aspect ratio! Couldn't determine the signal region.");
+    }
+}
 
 void loop()
 {
@@ -10056,23 +10101,32 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
     Ascii8 slot = 0;
     File f;
 
-    f = SPIFFS.open("/preferencesv2.txt", "r");
-    if (f) {
-        SerialM.println(F("preferencesv2.txt opened"));
-        uint8_t result[3];
-        result[0] = f.read(); // todo: move file cursor manually
-        result[1] = f.read();
-        result[2] = f.read();
+    if(asprectButtonPressed)
+    {
+        slot = forcedSlot;
 
-        f.close();
-        slot = result[2];
-    } else {
-        // file not found, we don't know what preset to load
-        SerialM.println(F("please select a preset slot first!")); // say "slot" here to make people save usersettings
-        if (forVideoMode == 2 || forVideoMode == 4)
-            return pal_240p;
-        else
-            return ntsc_240p;
+        asprectButtonPressed = false;
+    }
+    else
+    {
+        f = SPIFFS.open("/preferencesv2.txt", "r");
+        if (f) {
+            SerialM.println(F("preferencesv2.txt opened"));
+            uint8_t result[3];
+            result[0] = f.read(); // todo: move file cursor manually
+            result[1] = f.read();
+            result[2] = f.read();
+
+            f.close();
+            slot = result[2];
+        } else {
+            // file not found, we don't know what preset to load
+            SerialM.println(F("please select a preset slot first!")); // say "slot" here to make people save usersettings
+            if (forVideoMode == 2 || forVideoMode == 4)
+                return pal_240p;
+            else
+                return ntsc_240p;
+        }
     }
 
     SerialM.print(F("loading from preset slot "));
