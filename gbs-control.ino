@@ -53,7 +53,10 @@ uint8_t presetSlots[26] = {65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 7
 uint8_t validSlots[26];
 int validSlotCount = 0;
 int lastActiveSlotIndex = -1;
+
 byte lastVideoMode;
+unsigned long lastPresetModifiedTime;
+unsigned long lastTimeAtCheck;
 
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
@@ -7839,9 +7842,10 @@ void SwitchAspectRatio()
     
     byte videoMode = rto->videoStandardInput;
 
-    if(videoMode != lastVideoMode)
+    if((videoMode != lastVideoMode) || (lastTimeAtCheck != lastPresetModifiedTime))
     {
         lastVideoMode = videoMode;
+        lastTimeAtCheck = lastPresetModifiedTime;
 
         validSlotCount = 0;
         lastActiveSlotIndex = -1;
@@ -9891,6 +9895,8 @@ void startWebserver()
                 SPIFFS.remove("/preset_vga_upscale." + String((char)slot));
                 SPIFFS.remove("/preset_unknown." + String((char)slot));
 
+                lastPresetModifiedTime = millis();
+
                 uint8_t loopCount = 0;
                 uint8_t flag = 1;
                 while (flag != 0)
@@ -10322,6 +10328,8 @@ void savePresetToSPIFFS()
         SerialM.print(F("preset saved as: "));
         SerialM.println(f.name());
         f.close();
+
+        lastPresetModifiedTime = millis();
     }
 }
 
