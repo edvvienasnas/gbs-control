@@ -49,6 +49,12 @@ uint8_t forcedSlot = 0;
 
 #endif
 
+uint8_t presetSlots[26] = {65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90}; // Chars correspond to slots in ascii: A, B, C...Z
+uint8_t validSlots[26];
+int validSlotCount = 0;
+int lastActiveSlotIndex = -1;
+byte lastVideoMode;
+
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
 
@@ -7828,38 +7834,63 @@ void ReadButtonState(String button, int pin, int &currentState, int &lastState)
 
 void SwitchAspectRatio()
 {
+    File f;
     asprectButtonPressed = true;
     
     byte videoMode = rto->videoStandardInput;
 
-    // Video modes to preset files mapping:
-    // 1 - preset_ntsc.
-    // 2 - preset_pal.
-    // 3 - preset_ntsc_480p.
-    // 4 - preset_pal_576p.
-    // 5 - preset_ntsc_720p.
-    // 6 - preset_ntsc_1080p.
-    // 8 - preset_medium_res.
-    // 14 - preset_vga_upscale.
-    // 0 - preset_unknown.
+    if(videoMode != lastVideoMode)
+    {
+        lastVideoMode = videoMode;
 
-    if(videoMode == 2 || videoMode == 4)
-    {
-        // PAL preset slots: A = 65, B = 66
-        forcedSlot = (forcedSlot == 65) ? 66 : 65;
-        handleType2Command('3');
+        validSlotCount = 0;
+        lastActiveSlotIndex = -1;
+
+        for(int i=0; i < (sizeof(presetSlots)); i++)
+        {
+            if(videoMode == 1) f = SPIFFS.open("/preset_ntsc." + String((char)presetSlots[i]), "r");
+            else if(videoMode == 2) f = SPIFFS.open("/preset_pal." + String((char)presetSlots[i]), "r");
+            else if(videoMode == 3) f = SPIFFS.open("/preset_ntsc_480p." + String((char)presetSlots[i]), "r");
+            else if(videoMode == 4) f = SPIFFS.open("/preset_pal_576p." + String((char)presetSlots[i]), "r");
+            else if(videoMode == 5) f = SPIFFS.open("/preset_ntsc_720p." + String((char)presetSlots[i]), "r");
+            else if(videoMode == 6) f = SPIFFS.open("/preset_ntsc_1080p." + String((char)presetSlots[i]), "r");
+            else if(videoMode == 8) f = SPIFFS.open("/preset_medium_res." + String((char)presetSlots[i]), "r");
+            else if(videoMode == 14) f = SPIFFS.open("/preset_vga_upscale." + String((char)presetSlots[i]), "r");
+            else if(videoMode == 0) f = SPIFFS.open("/preset_unknown." + String((char)presetSlots[i]), "r");
+            
+            if(f)
+            {
+                validSlots[validSlotCount] = presetSlots[i];
+                validSlotCount++;
+            }
+        }
+
+        f.close();
     }
-    else if(videoMode == 1 || videoMode == 3 || videoMode == 5 || videoMode == 6)
+
+    if(videoMode == 1 || videoMode == 2 || videoMode == 3 || videoMode == 4 || videoMode == 5 || videoMode == 6 || videoMode == 8 || videoMode == 14 || videoMode == 0)
     {
-        // NTSC preset slots: C = 67, D = 68
-        forcedSlot = (forcedSlot == 67) ? 68 : 67;
+        if(lastActiveSlotIndex + 1 < validSlotCount)
+        {
+            forcedSlot = validSlots[lastActiveSlotIndex + 1];
+            lastActiveSlotIndex = lastActiveSlotIndex + 1;
+        }
+        else
+        {
+            forcedSlot = validSlots[0];
+            lastActiveSlotIndex = 0;
+        }
+        
+        uopt->presetSlot = (char)forcedSlot;
+        saveUserPrefs();
+
         handleType2Command('3');
     }
     else
     {
         asprectButtonPressed = false;
 
-        SerialM.println("Error switching aspect ratio! Couldn't determine the signal region.");
+        SerialM.println("Error switching aspect ratio - invalid video mode detected!");
     }
 }
 
