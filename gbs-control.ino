@@ -10128,7 +10128,6 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
         if(lastVideoMode != forVideoMode)
         {
             forcedSlot = loadLastActivePresetSlot(forVideoMode);
-            lastActiveSlotIndex = -1;
         }
         else if(lastActiveSlotIndex + 1 < validSlotCount)
         {
@@ -10343,7 +10342,10 @@ void savePresetToSPIFFS()
 // If no videoMode specified, just load the known active slot history into memory
 uint8_t loadLastActivePresetSlot(byte videoMode)
 {
+    uint8_t slotToLoad;
+
     File f = SPIFFS.open("/presetVideoModeLog.txt", "r");
+    
     if (f)
     {
         int currentLine = 0;
@@ -10365,12 +10367,16 @@ uint8_t loadLastActivePresetSlot(byte videoMode)
 
         if(videoMode != 0)
         {
-            SerialM.println(F("Restoring last active preset from slot "));
-            SerialM.print((char)((uint8_t)foundSlot.toInt()));
+            int separatorIndex = foundSlot.indexOf(';');
+            slotToLoad = (uint8_t)foundSlot.substring(0, separatorIndex).toInt();
+            lastActiveSlotIndex = foundSlot.substring(separatorIndex + 1).toInt();
+
+            SerialM.print(F("Restoring last active preset from slot "));
+            SerialM.println((char)slotToLoad);
         }
 
         f.close();
-        return (uint8_t)foundSlot.toInt();
+        return slotToLoad;
     }
     else
     {
@@ -10396,7 +10402,9 @@ void saveLastActivePresetSlot(byte videoMode, uint8_t slot)
 
         for(int i=0; i < (sizeof(videoModeDefaultSlots)); i++)
         {
-            f.println(videoModeDefaultSlots[i]);
+            f.print(videoModeDefaultSlots[i]); // Preset Slot for given Video Mode
+            f.print(";"); // Separator
+            f.println(lastActiveSlotIndex); // Index of preset among all valid presets for the given Video Mode
         }
 
         f.close();
