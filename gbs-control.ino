@@ -44,7 +44,6 @@ int asprectCurrentState;     // Current state of pin_asprect
 unsigned long lastDebounceTime = 0; 
 unsigned long debounceDelay = 50;
 
-bool asprectButtonPressed = false;
 uint8_t forcedSlot = 0;
 
 #endif
@@ -7838,62 +7837,15 @@ void ReadButtonState(String button, int pin, int &currentState, int &lastState)
 void SwitchAspectRatio()
 {
     File f;
-    asprectButtonPressed = true;
     
     byte videoMode = rto->videoStandardInput;
 
-    if((videoMode != lastVideoMode) || (lastTimeAtCheck != lastPresetModifiedTime))
-    {
-        lastVideoMode = videoMode;
-        lastTimeAtCheck = lastPresetModifiedTime;
-
-        validSlotCount = 0;
-        lastActiveSlotIndex = -1;
-
-        for(int i=0; i < (sizeof(presetSlots)); i++)
-        {
-            if(videoMode == 1) f = SPIFFS.open("/preset_ntsc." + String((char)presetSlots[i]), "r");
-            else if(videoMode == 2) f = SPIFFS.open("/preset_pal." + String((char)presetSlots[i]), "r");
-            else if(videoMode == 3) f = SPIFFS.open("/preset_ntsc_480p." + String((char)presetSlots[i]), "r");
-            else if(videoMode == 4) f = SPIFFS.open("/preset_pal_576p." + String((char)presetSlots[i]), "r");
-            else if(videoMode == 5) f = SPIFFS.open("/preset_ntsc_720p." + String((char)presetSlots[i]), "r");
-            else if(videoMode == 6) f = SPIFFS.open("/preset_ntsc_1080p." + String((char)presetSlots[i]), "r");
-            else if(videoMode == 8) f = SPIFFS.open("/preset_medium_res." + String((char)presetSlots[i]), "r");
-            else if(videoMode == 14) f = SPIFFS.open("/preset_vga_upscale." + String((char)presetSlots[i]), "r");
-            else if(videoMode == 0) f = SPIFFS.open("/preset_unknown." + String((char)presetSlots[i]), "r");
-            
-            if(f)
-            {
-                validSlots[validSlotCount] = presetSlots[i];
-                validSlotCount++;
-            }
-        }
-
-        f.close();
-    }
-
     if(videoMode == 1 || videoMode == 2 || videoMode == 3 || videoMode == 4 || videoMode == 5 || videoMode == 6 || videoMode == 8 || videoMode == 14 || videoMode == 0)
     {
-        if(lastActiveSlotIndex + 1 < validSlotCount)
-        {
-            forcedSlot = validSlots[lastActiveSlotIndex + 1];
-            lastActiveSlotIndex = lastActiveSlotIndex + 1;
-        }
-        else
-        {
-            forcedSlot = validSlots[0];
-            lastActiveSlotIndex = 0;
-        }
-        
-        uopt->presetSlot = (char)forcedSlot;
-        saveUserPrefs();
-
         handleType2Command('3');
     }
     else
     {
-        asprectButtonPressed = false;
-
         SerialM.println("Error switching aspect ratio - invalid video mode detected!");
     }
 }
@@ -10138,13 +10090,56 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
     Ascii8 slot = 0;
     File f;
 
-    if(asprectButtonPressed)
+    if((forVideoMode != lastVideoMode) || (lastTimeAtCheck != lastPresetModifiedTime))
     {
-        slot = forcedSlot;
+        lastVideoMode = forVideoMode;
+        lastTimeAtCheck = lastPresetModifiedTime;
 
-        asprectButtonPressed = false;
+        validSlotCount = 0;
+        lastActiveSlotIndex = -1;
+
+        for(int i=0; i < (sizeof(presetSlots)); i++)
+        {
+            if(forVideoMode == 1) f = SPIFFS.open("/preset_ntsc." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 2) f = SPIFFS.open("/preset_pal." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 3) f = SPIFFS.open("/preset_ntsc_480p." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 4) f = SPIFFS.open("/preset_pal_576p." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 5) f = SPIFFS.open("/preset_ntsc_720p." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 6) f = SPIFFS.open("/preset_ntsc_1080p." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 8) f = SPIFFS.open("/preset_medium_res." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 14) f = SPIFFS.open("/preset_vga_upscale." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 0) f = SPIFFS.open("/preset_unknown." + String((char)presetSlots[i]), "r");
+            
+            if(f)
+            {
+                validSlots[validSlotCount] = presetSlots[i];
+                validSlotCount++;
+            }
+        }
+
+        f.close();
     }
-    else
+
+    if(forVideoMode == 1 || forVideoMode == 2 || forVideoMode == 3 || forVideoMode == 4 || forVideoMode == 5 || forVideoMode == 6 || forVideoMode == 8 || forVideoMode == 14 || forVideoMode == 0)
+    {
+        if(lastActiveSlotIndex + 1 < validSlotCount)
+        {
+            forcedSlot = validSlots[lastActiveSlotIndex + 1];
+            lastActiveSlotIndex = lastActiveSlotIndex + 1;
+        }
+        else
+        {
+            forcedSlot = validSlots[0];
+            lastActiveSlotIndex = 0;
+        }
+        
+        uopt->presetSlot = (char)forcedSlot;
+        saveUserPrefs();
+
+        slot = forcedSlot;
+    }
+
+    if(slot == 0)
     {
         f = SPIFFS.open("/preferencesv2.txt", "r");
         if (f) {
