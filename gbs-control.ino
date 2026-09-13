@@ -48,6 +48,8 @@ uint8_t forcedSlot = 0;
 
 #endif
 
+uint8_t videoModeDefaultSlots[15]; // Video modes go from 0 to 14, allegedly
+
 uint8_t presetSlots[26] = {65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90}; // Chars correspond to slots in ascii: A, B, C...Z
 uint8_t validSlots[26];
 int validSlotCount = 0;
@@ -59,6 +61,8 @@ unsigned long lastTimeAtCheck;
 
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
+
+uint8_t loadLastActivePresetSlot(byte videoMode = 0);
 
 #if ENABLE_OLED
 SSD1306Wire display(0x3c, D2, D1); //inits I2C address & pins for OLED
@@ -10092,7 +10096,6 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
 
     if((forVideoMode != lastVideoMode) || (lastTimeAtCheck != lastPresetModifiedTime))
     {
-        lastVideoMode = forVideoMode;
         lastTimeAtCheck = lastPresetModifiedTime;
 
         validSlotCount = 0;
@@ -10122,7 +10125,12 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
 
     if(forVideoMode == 1 || forVideoMode == 2 || forVideoMode == 3 || forVideoMode == 4 || forVideoMode == 5 || forVideoMode == 6 || forVideoMode == 8 || forVideoMode == 14 || forVideoMode == 0)
     {
-        if(lastActiveSlotIndex + 1 < validSlotCount)
+        if(lastVideoMode != forVideoMode)
+        {
+            forcedSlot = loadLastActivePresetSlot(forVideoMode);
+            lastActiveSlotIndex = -1;
+        }
+        else if(lastActiveSlotIndex + 1 < validSlotCount)
         {
             forcedSlot = validSlots[lastActiveSlotIndex + 1];
             lastActiveSlotIndex = lastActiveSlotIndex + 1;
@@ -10134,9 +10142,12 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
         }
         
         uopt->presetSlot = (char)forcedSlot;
-        saveUserPrefs();
-
         slot = forcedSlot;
+
+        lastVideoMode = forVideoMode;
+
+        saveLastActivePresetSlot(forVideoMode, forcedSlot);
+        saveUserPrefs();
     }
 
     if(slot == 0)
@@ -10325,6 +10336,74 @@ void savePresetToSPIFFS()
         f.close();
 
         lastPresetModifiedTime = millis();
+    }
+}
+
+// Loads the last used preset for a given video mode
+// If no videoMode specified, just load the known active slot history into memory
+uint8_t loadLastActivePresetSlot(byte videoMode)
+{
+    File f = SPIFFS.open("/presetVideoModeLog.txt", "r");
+    if (f)
+    {
+        int currentLine = 0;
+        String lineValue = "";
+        String foundSlot = "";
+
+        while (f.available()) 
+        {
+            lineValue = f.readStringUntil('\n');
+
+            if (currentLine == videoMode) 
+            {
+                foundSlot = lineValue;
+            }
+
+            videoModeDefaultSlots[currentLine] = (uint8_t)lineValue.toInt();
+            currentLine++;
+        }
+
+        if(videoMode != 0)
+        {
+            SerialM.println(F("Restoring last active preset from slot "));
+            SerialM.print((char)((uint8_t)foundSlot.toInt()));
+        }
+
+        f.close();
+        return (uint8_t)foundSlot.toInt();
+    }
+    else
+    {
+        SerialM.println(F("Failed to load last preset for current video mode - couldn't open presetVideoModeLog.txt!"));
+    }
+
+    return 0;
+}
+
+// Saves the last used preset for a given video mode
+void saveLastActivePresetSlot(byte videoMode, uint8_t slot)
+{
+    File f;
+
+    // Load last valid config into memory before saving over it
+    loadLastActivePresetSlot();
+
+    // Now we can save the new defaults
+    f = SPIFFS.open("/presetVideoModeLog.txt", "w");
+    if(f)
+    {
+        videoModeDefaultSlots[videoMode] = slot;
+
+        for(int i=0; i < (sizeof(videoModeDefaultSlots)); i++)
+        {
+            f.println(videoModeDefaultSlots[i]);
+        }
+
+        f.close();
+    }
+    else
+    {
+        SerialM.println(F("Failed to record current preset slot in history - couldn't open presetVideoModeLog.txt!"));
     }
 }
 
