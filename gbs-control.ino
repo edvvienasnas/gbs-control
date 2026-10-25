@@ -33,9 +33,12 @@
 
 #if ENABLE_BASIC_CONTROLS
 const int pin_preset = 0;  //D3 = GPIO0 connected to FLASH button, boot fails if pulled LOW
-
 int presetLastState = LOW;  // Previous state of pin_preset
 int presetCurrentState;     // Current state of pin_preset
+
+const int pin_extclk = 14;   //D5 = GPIO14 SPI (SCLK)
+int extclkLastState = LOW;  // Previous state of pin_extclk
+int extclkCurrentState;     // Current state of pin_extclk
 
 unsigned long lastDebounceTime = 0; 
 unsigned long debounceDelay = 50;
@@ -7226,6 +7229,7 @@ void setup()
 {
 #if ENABLE_BASIC_CONTROLS
     pinMode(pin_preset, INPUT_PULLUP);
+    pinMode(pin_extclk, INPUT_PULLUP);
 #endif
 
 #if ENABLE_OLED
@@ -7863,6 +7867,7 @@ void loop()
 
 #if ENABLE_BASIC_CONTROLS
     ReadButtonState("Preset Button", pin_preset, presetCurrentState, presetLastState);
+    ReadButtonState("External Clock Button", pin_extclk, extclkCurrentState, extclkLastState);
 #endif
 
 #if ENABLE_OLED
