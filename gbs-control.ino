@@ -26,15 +26,45 @@
 #define HAVE_BUTTONS 0
 #define USE_NEW_OLED_MENU 1
 
+// Optional add-ons that use the same GPIO pins
+// Only enable one at a time!!
+#define ENABLE_BASIC_CONTROLS 1
+#define ENABLE_OLED 0
+
+#if ENABLE_BASIC_CONTROLS
+const int pin_preset = 0;  //D3 = GPIO0 connected to FLASH button, boot fails if pulled LOW
+
+int presetLastState = LOW;  // Previous state of pin_preset
+int presetCurrentState;     // Current state of pin_preset
+
+unsigned long lastDebounceTime = 0; 
+unsigned long debounceDelay = 50;
+
+uint8_t forcedSlot = 0;
+
+#endif
+
+uint8_t videoModeDefaultSlots[15]; // Video modes go from 0 to 14
+
+uint8_t presetSlots[26] = {65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90}; // Chars correspond to slots in ascii: A, B, C...Z
+uint8_t validSlots[26];
+int validSlotCount = 0;
+int lastActiveSlotIndex = -1;
+
+byte lastVideoMode;
+unsigned long lastPresetModifiedTime;
+unsigned long lastTimeAtCheck;
 
 static inline void writeBytes(uint8_t slaveRegister, uint8_t *values, uint8_t numValues);
 const uint8_t *loadPresetFromSPIFFS(byte forVideoMode);
 
+uint8_t loadLastActivePresetSlot(byte videoMode = 0);
+
+#if ENABLE_OLED
 SSD1306Wire display(0x3c, D2, D1); //inits I2C address & pins for OLED
 const int pin_clk = 14;            //D5 = GPIO14 (input of one direction for encoder)
 const int pin_data = 13;           //D7 = GPIO13	(input of one direction for encoder)
 const int pin_switch = 0;          //D3 = GPIO0 pulled HIGH, else boot fail (middle push button for encoder)
-
 
 #if USE_NEW_OLED_MENU
 #include "OLEDMenuImplementation.h"
@@ -59,6 +89,7 @@ volatile int oled_encoder_pos = 0;
 volatile int oled_main_pointer = 0; // volatile vars change done with ISR
 volatile int oled_pointer_count = 0;
 volatile int oled_sub_pointer = 0;
+#endif
 #endif
 #include <ESP8266WiFi.h>
 // ESPAsyncTCP and ESPAsyncWebServer libraries by me-no-dev
@@ -7124,6 +7155,7 @@ void loadDefaultUserOptions()
 //  system_phy_set_powerup_option(0);
 //}
 
+#if ENABLE_OLED
 #if !USE_NEW_OLED_MENU
 void ICACHE_RAM_ATTR isrRotaryEncoder()
 {
@@ -7188,9 +7220,15 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
     lastInterruptTime = interruptTime;
 }
 #endif
+#endif
 
 void setup()
 {
+#if ENABLE_BASIC_CONTROLS
+    pinMode(pin_preset, INPUT_PULLUP);
+#endif
+
+#if ENABLE_OLED
     display.init();                 //inits OLED on I2C bus
     display.flipScreenVertically(); //orientation fix for OLED
 
@@ -7206,6 +7244,7 @@ void setup()
 #else
     // ISR TO PIN
     attachInterrupt(digitalPinToInterrupt(pin_clk), isrRotaryEncoder, FALLING);
+#endif
 #endif
 
     rto->webServerEnabled = true;
@@ -7307,12 +7346,16 @@ void setup()
     unsigned long initDelay = millis();
     // upped from < 500 to < 1500, allows more time for wifi and GBS startup
     while (millis() - initDelay < 1500) {
+#if ENABLE_OLED
         display.drawXbm(2, 2, gbsicon_width, gbsicon_height, gbsicon_bits);
         display.display();
+#endif
         handleWiFi(0);
         delay(1);
     }
+#if ENABLE_OLED
     display.clear();
+#endif
     // if i2c established and chip running, issue software reset now
     GBS::RESET_CONTROL_0x46::write(0);
     GBS::RESET_CONTROL_0x47::write(0);
@@ -7539,6 +7582,7 @@ void setup()
     }
 }
 
+#if ENABLE_OLED
 #if HAVE_BUTTONS
 #define INPUT_SHIFT 0
 #define DOWN_SHIFT 1
@@ -7599,6 +7643,7 @@ void handleButtons(void)
         Menu::run(MenuInput::FORWARD);
 #endif
 }
+#endif
 #endif
 
 void discardSerialRxData()
@@ -7750,6 +7795,61 @@ void myLog(char const* type, char command) {
         type, command, uopt->presetPreference, uopt->presetSlot, rto->presetID);
 }
 
+#if ENABLE_BASIC_CONTROLS
+void ReadButtonState(String button, int pin, int &currentState, int &lastState)
+{
+    // Read the state of buttons
+    int reading = digitalRead(pin);
+
+    // Button press detected? Record when it happenes
+    if (reading != lastState)
+    {
+        lastDebounceTime = millis();
+    }
+
+    if((millis() - lastDebounceTime) > debounceDelay)
+    {
+        if(reading != currentState)
+        {
+            currentState = reading;
+
+            if (currentState == LOW)
+            {
+                SerialM.println(button + " is pressed");
+            }
+            else if (currentState == HIGH)
+            {
+                SerialM.println(button + " is released");
+                if(button == "Preset Button")
+                {
+                    CyclePreset();
+                }
+            }
+        }
+    }
+    
+    // save the the last state
+    lastState = reading;
+}
+#endif
+
+// Cycle through presets for the given video mode
+void CyclePreset()
+{
+    File f;
+    
+    byte videoMode = rto->videoStandardInput;
+
+    if(videoMode == 1 || videoMode == 2 || videoMode == 3 || videoMode == 4 || videoMode == 5 || videoMode == 6 || videoMode == 8 || videoMode == 14 || videoMode == 0)
+    {
+        handleType2Command('3');
+    }
+    else
+    {
+        SerialM.println("Error setting preset - invalid video mode detected!");
+    }
+}
+
 void loop()
 {
     static uint8_t readout = 0;
@@ -7761,6 +7861,11 @@ void loop()
     static unsigned long lastTimeSourceCheck = 500; // 500 to start right away (after setup it will be 2790ms when we get here)
     static unsigned long lastTimeInterruptClear = millis();
 
+#if ENABLE_BASIC_CONTROLS
+    ReadButtonState("Preset Button", pin_preset, presetCurrentState, presetLastState);
+#endif
+
+#if ENABLE_OLED
 #if HAVE_BUTTONS
     static unsigned long lastButton = micros();
     if (micros() - lastButton > buttonPollInterval) {
@@ -7783,6 +7888,7 @@ void loop()
     if (oled_encoder_pos != oled_lastCount) {
         oled_lastCount = oled_encoder_pos;
     }
+#endif
 #endif
 
     handleWiFi(0); // WiFi + OTA + WS + MDNS, checks for server enabled + started
@@ -9740,6 +9846,8 @@ void startWebserver()
                 SPIFFS.remove("/preset_vga_upscale." + String((char)slot));
                 SPIFFS.remove("/preset_unknown." + String((char)slot));
 
+                lastPresetModifiedTime = millis();
+
                 uint8_t loopCount = 0;
                 uint8_t flag = 1;
                 while (flag != 0)
@@ -9981,23 +10089,81 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
     Ascii8 slot = 0;
     File f;
 
-    f = SPIFFS.open("/preferencesv2.txt", "r");
-    if (f) {
-        SerialM.println(F("preferencesv2.txt opened"));
-        uint8_t result[3];
-        result[0] = f.read(); // todo: move file cursor manually
-        result[1] = f.read();
-        result[2] = f.read();
+    if((forVideoMode != lastVideoMode) || (lastTimeAtCheck != lastPresetModifiedTime))
+    {
+        lastTimeAtCheck = lastPresetModifiedTime;
+
+        validSlotCount = 0;
+        lastActiveSlotIndex = -1;
+
+        for(int i=0; i < (sizeof(presetSlots)); i++)
+        {
+            if(forVideoMode == 1) f = SPIFFS.open("/preset_ntsc." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 2) f = SPIFFS.open("/preset_pal." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 3) f = SPIFFS.open("/preset_ntsc_480p." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 4) f = SPIFFS.open("/preset_pal_576p." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 5) f = SPIFFS.open("/preset_ntsc_720p." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 6) f = SPIFFS.open("/preset_ntsc_1080p." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 8) f = SPIFFS.open("/preset_medium_res." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 14) f = SPIFFS.open("/preset_vga_upscale." + String((char)presetSlots[i]), "r");
+            else if(forVideoMode == 0) f = SPIFFS.open("/preset_unknown." + String((char)presetSlots[i]), "r");
+            
+            if(f)
+            {
+                validSlots[validSlotCount] = presetSlots[i];
+                validSlotCount++;
+            }
+        }
 
         f.close();
-        slot = result[2];
-    } else {
-        // file not found, we don't know what preset to load
-        SerialM.println(F("please select a preset slot first!")); // say "slot" here to make people save usersettings
-        if (forVideoMode == 2 || forVideoMode == 4)
-            return pal_240p;
+    }
+
+    if(forVideoMode == 1 || forVideoMode == 2 || forVideoMode == 3 || forVideoMode == 4 || forVideoMode == 5 || forVideoMode == 6 || forVideoMode == 8 || forVideoMode == 14 || forVideoMode == 0)
+    {
+        if(lastVideoMode != forVideoMode)
+        {
+            forcedSlot = loadLastActivePresetSlot(forVideoMode);
+        }
+        else if(lastActiveSlotIndex + 1 < validSlotCount)
+        {
+            forcedSlot = validSlots[lastActiveSlotIndex + 1];
+            lastActiveSlotIndex = lastActiveSlotIndex + 1;
+        }
         else
-            return ntsc_240p;
+        {
+            forcedSlot = validSlots[0];
+            lastActiveSlotIndex = 0;
+        }
+        
+        uopt->presetSlot = (char)forcedSlot;
+        slot = forcedSlot;
+
+        lastVideoMode = forVideoMode;
+
+        saveLastActivePresetSlot(forVideoMode, forcedSlot);
+        saveUserPrefs();
+    }
+
+    if(slot == 0)
+    {
+        f = SPIFFS.open("/preferencesv2.txt", "r");
+        if (f) {
+            SerialM.println(F("preferencesv2.txt opened"));
+            uint8_t result[3];
+            result[0] = f.read(); // todo: move file cursor manually
+            result[1] = f.read();
+            result[2] = f.read();
+
+            f.close();
+            slot = result[2];
+        } else {
+            // file not found, we don't know what preset to load
+            SerialM.println(F("please select a preset slot first!")); // say "slot" here to make people save usersettings
+            if (forVideoMode == 2 || forVideoMode == 4)
+                return pal_240p;
+            else
+                return ntsc_240p;
+        }
     }
 
     SerialM.print(F("loading from preset slot "));
@@ -10162,6 +10328,85 @@ void savePresetToSPIFFS()
         SerialM.print(F("preset saved as: "));
         SerialM.println(f.name());
         f.close();
+
+        lastPresetModifiedTime = millis();
+    }
+}
+
+// Loads the last used preset for a given video mode
+// If no videoMode specified, just load the known active slot history into memory
+uint8_t loadLastActivePresetSlot(byte videoMode)
+{
+    uint8_t slotToLoad;
+
+    File f = SPIFFS.open("/presetVideoModeLog.txt", "r");
+    
+    if (f)
+    {
+        int currentLine = 0;
+        String lineValue = "";
+        String foundSlot = "";
+
+        while (f.available()) 
+        {
+            lineValue = f.readStringUntil('\n');
+
+            if (currentLine == videoMode) 
+            {
+                foundSlot = lineValue;
+            }
+
+            videoModeDefaultSlots[currentLine] = (uint8_t)lineValue.toInt();
+            currentLine++;
+        }
+
+        if(videoMode != 0)
+        {
+            int separatorIndex = foundSlot.indexOf(';');
+            slotToLoad = (uint8_t)foundSlot.substring(0, separatorIndex).toInt();
+            lastActiveSlotIndex = foundSlot.substring(separatorIndex + 1).toInt();
+
+            SerialM.print(F("Restoring last active preset from slot "));
+            SerialM.println((char)slotToLoad);
+        }
+
+        f.close();
+        return slotToLoad;
+    }
+    else
+    {
+        SerialM.println(F("Failed to load last preset for current video mode - couldn't open presetVideoModeLog.txt!"));
+    }
+
+    return 0;
+}
+
+// Saves the last used preset for a given video mode
+void saveLastActivePresetSlot(byte videoMode, uint8_t slot)
+{
+    File f;
+
+    // Load last valid config into memory before saving over it
+    loadLastActivePresetSlot();
+
+    // Now we can save the new defaults
+    f = SPIFFS.open("/presetVideoModeLog.txt", "w");
+    if(f)
+    {
+        videoModeDefaultSlots[videoMode] = slot;
+
+        for(int i=0; i < (sizeof(videoModeDefaultSlots)); i++)
+        {
+            f.print(videoModeDefaultSlots[i]); // Preset Slot for given Video Mode
+            f.print(";"); // Separator
+            f.println(lastActiveSlotIndex); // Index of preset among all valid presets for the given Video Mode
+        }
+
+        f.close();
+    }
+    else
+    {
+        SerialM.println(F("Failed to record current preset slot in history - couldn't open presetVideoModeLog.txt!"));
     }
 }
 
@@ -10198,6 +10443,7 @@ void saveUserPrefs()
 
 #endif
 
+#if ENABLE_OLED
 #if !USE_NEW_OLED_MENU
 //OLED Functionality
 void settingsMenuOLED()
@@ -10809,4 +11055,5 @@ void subpointerfunction()
         oled_pointer_count = 7;
     }
 }
+#endif
 #endif
