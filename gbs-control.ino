@@ -44,7 +44,7 @@ uint8_t forcedSlot = 0;
 
 #endif
 
-uint8_t videoModeDefaultSlots[15]; // Video modes go from 0 to 14, allegedly
+uint8_t videoModeDefaultSlots[15]; // Video modes go from 0 to 14
 
 uint8_t presetSlots[26] = {65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90}; // Chars correspond to slots in ascii: A, B, C...Z
 uint8_t validSlots[26];
