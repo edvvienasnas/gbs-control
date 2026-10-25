@@ -32,14 +32,10 @@
 #define ENABLE_OLED 0
 
 #if ENABLE_BASIC_CONTROLS
-const int pin_extclk = 2;   //D3 = GPIO0 pulled HIGH, else boot fail
-const int pin_asprect = 0;  //D4 = GPIO2 pulled HIGH, else boot fail
+const int pin_preset = 0;  //D3 = GPIO0 connected to FLASH button, boot fails if pulled LOW
 
-int extclkLastState = LOW;  // Previous state of pin_extclk
-int extclkCurrentState;     // Current state of pin_extclk
-
-int asprectLastState = LOW;  // Previous state of pin_asprect
-int asprectCurrentState;     // Current state of pin_asprect
+int presetLastState = LOW;  // Previous state of pin_preset
+int presetCurrentState;     // Current state of pin_preset
 
 unsigned long lastDebounceTime = 0; 
 unsigned long debounceDelay = 50;
@@ -7229,8 +7225,7 @@ void ICACHE_RAM_ATTR isrRotaryEncoderPushForNewMenu()
 void setup()
 {
 #if ENABLE_BASIC_CONTROLS
-    pinMode(pin_extclk , INPUT_PULLUP);
-    pinMode(pin_asprect, INPUT_PULLUP);
+    pinMode(pin_preset, INPUT_PULLUP);
 #endif
 
 #if ENABLE_OLED
@@ -7825,9 +7820,9 @@ void ReadButtonState(String button, int pin, int &currentState, int &lastState)
             else if (currentState == HIGH)
             {
                 SerialM.println(button + " is released");
-                if(button == "Aspect Ratio Button")
+                if(button == "Preset Button")
                 {
-                    SwitchAspectRatio();
+                    CyclePreset();
                 }
             }
         }
@@ -7838,7 +7833,8 @@ void ReadButtonState(String button, int pin, int &currentState, int &lastState)
 }
 #endif
 
-void SwitchAspectRatio()
+// Cycle through presets for the given video mode
+void CyclePreset()
 {
     File f;
     
@@ -7850,7 +7846,7 @@ void SwitchAspectRatio()
     }
     else
     {
-        SerialM.println("Error switching aspect ratio - invalid video mode detected!");
+        SerialM.println("Error setting preset - invalid video mode detected!");
     }
 }
 
@@ -7866,8 +7862,7 @@ void loop()
     static unsigned long lastTimeInterruptClear = millis();
 
 #if ENABLE_BASIC_CONTROLS
-    ReadButtonState("External Clock Button", pin_extclk, extclkCurrentState, extclkLastState);
-    ReadButtonState("Aspect Ratio Button", pin_asprect, asprectCurrentState, asprectLastState);
+    ReadButtonState("Preset Button", pin_preset, presetCurrentState, presetLastState);
 #endif
 
 #if ENABLE_OLED
