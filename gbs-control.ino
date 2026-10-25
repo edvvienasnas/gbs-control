@@ -32,13 +32,16 @@
 #define ENABLE_OLED 0
 
 #if ENABLE_BASIC_CONTROLS
-const int pin_preset = 0;  //D3 = GPIO0 connected to FLASH button, boot fails if pulled LOW
-int presetLastState = LOW;  // Previous state of pin_preset
-int presetCurrentState;     // Current state of pin_preset
+bool bootFinished = false;
+unsigned long totalTimeToBoot = 1000; 
 
-const int pin_extclk = 14;   //D5 = GPIO14 SPI (SCLK)
-int extclkLastState = LOW;  // Previous state of pin_extclk
-int extclkCurrentState;     // Current state of pin_extclk
+const int pin_preset = 0; //D3 = GPIO0 connected to FLASH button, boot fails if pulled LOW
+int presetLastState = HIGH; // Previous state of pin_preset
+int presetCurrentState = HIGH; // Current state of pin_preset
+
+const int pin_extclk = 14; //D5 = GPIO14 SPI (SCLK)
+int extclkLastState = HIGH; // Previous state of pin_extclk
+int extclkCurrentState = HIGH; // Current state of pin_extclk
 
 unsigned long lastDebounceTime = 0; 
 unsigned long debounceDelay = 50;
@@ -7828,6 +7831,10 @@ void ReadButtonState(String button, int pin, int &currentState, int &lastState)
                 {
                     CyclePreset();
                 }
+                else if(button == "External Clock Button")
+                {
+                    ToggleExternalClock();
+                }
             }
         }
     }
@@ -7854,6 +7861,12 @@ void CyclePreset()
     }
 }
 
+void ToggleExternalClock()
+{
+    handleType2Command('X'); // Toggle 'Disable External Clock Generator' in web UI
+    handleType2Command('a'); // Restart GBS-C
+}
+
 void loop()
 {
     static uint8_t readout = 0;
@@ -7866,8 +7879,23 @@ void loop()
     static unsigned long lastTimeInterruptClear = millis();
 
 #if ENABLE_BASIC_CONTROLS
+ // Wait a bit before allowing buttons to function, as some GPIO pins can fire off during boot
+if(!bootFinished)
+{
+    unsigned long timeInBoot = millis();
+
+    if(timeInBoot >= totalTimeToBoot)
+    {
+        bootFinished = true;
+        SerialM.println(F("Boot sequence finished, button controls can now be used."));
+    }
+}
+
+if(bootFinished)
+{
     ReadButtonState("Preset Button", pin_preset, presetCurrentState, presetLastState);
     ReadButtonState("External Clock Button", pin_extclk, extclkCurrentState, extclkLastState);
+}
 #endif
 
 #if ENABLE_OLED
