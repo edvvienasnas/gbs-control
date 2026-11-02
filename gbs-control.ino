@@ -43,6 +43,8 @@ const int pin_extclk = 14; //D5 = GPIO14 SPI (SCLK)
 int extclkLastState = HIGH; // Previous state of pin_extclk
 int extclkCurrentState = HIGH; // Current state of pin_extclk
 
+const int pin_relay = 13; //D7 = GPIO13 SPI (MOSI)
+
 unsigned long lastDebounceTime = 0; 
 unsigned long debounceDelay = 50;
 
@@ -7233,6 +7235,9 @@ void setup()
 #if ENABLE_BASIC_CONTROLS
     pinMode(pin_preset, INPUT_PULLUP);
     pinMode(pin_extclk, INPUT_PULLUP);
+
+    pinMode(pin_relay, OUTPUT);
+    digitalWrite(pin_relay, HIGH);
 #endif
 
 #if ENABLE_OLED
