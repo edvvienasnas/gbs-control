@@ -6124,10 +6124,6 @@ void runSyncWatcher()
         if (rto->noSyncCounter % 150 == 0) {
             if (rto->noSyncCounter == 150 || rto->noSyncCounter % 900 == 0) {
                 SerialM.print("\nno signal\n");
-
-                // Disable power supplying to the VGA2HDMI adapter when we lose signal
-                EnableRelayModule(false);
-
                 // check whether discrete VSync is present. if so, need to go to input detect
                 uint8_t extSyncBackup = GBS::SP_EXT_SYNC_SEL::read();
                 GBS::SP_EXT_SYNC_SEL::write(0);
@@ -7875,6 +7871,22 @@ void CyclePreset()
     }
 }
 
+String GetVideoModeType(byte videoMode)
+{
+    if(videoMode == 1 || videoMode == 3 || videoMode == 5 || videoMode == 6)
+    {
+        return "NTSC";
+    }
+    else if(videoMode == 2 || videoMode == 4)
+    {
+        return "PAL";
+    }
+    else
+    {
+        return "other";
+    }
+}
+
 void ToggleExternalClock()
 {
     handleType2Command('X'); // Toggle 'Disable External Clock Generator' in web UI
@@ -7884,12 +7896,12 @@ void ToggleExternalClock()
 // The relay module provides power to the USB breakout board, which powers the VGA2HDMI adapter
 void EnableRelayModule(bool enable)
 {
-    if(enable == true)
+    if(enable == true && digitalRead(pin_relay) != HIGH)
     {
         digitalWrite(pin_relay, HIGH);
         SerialM.println(F("Relay Module is ON"));
     }
-    else
+    else if (enable == false && digitalRead(pin_relay) != LOW)
     {
         digitalWrite(pin_relay, LOW);
         SerialM.println(F("Relay Module is OFF"));
@@ -7904,7 +7916,6 @@ void RestartRelayModule()
     digitalWrite(pin_relay, LOW);
     delay(10);
     digitalWrite(pin_relay, HIGH);
-    SerialM.println(F("Relay Module restart is complete"));
 }
 
 void loop()
@@ -10195,9 +10206,13 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
     {
         if(lastVideoMode != forVideoMode)
         {
-            // Reset VGA2HDMI adapter when switching video modes
+            // Reset VGA2HDMI adapter when switching between PAL and NTSC video modes
             // Sometimes it gets confused during the switch and doesn't display anything until it's powercycled
-            RestartRelayModule();
+            String lastVideoModeType = GetVideoModeType(lastVideoMode);
+            if((lastVideoModeType != GetVideoModeType(forVideoMode)) && lastVideoModeType != "other")
+            {
+                RestartRelayModule();
+            }
 
             forcedSlot = loadLastActivePresetSlot(forVideoMode);
         }
