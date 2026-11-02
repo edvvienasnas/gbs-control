@@ -1257,6 +1257,7 @@ void goLowPowerWithInputDetection()
     prepareSyncProcessor();
     delay(100);
     rto->isInLowPowerMode = true;
+    EnableRelayModule(false);
     SerialM.println(F("Scanning inputs for sources ..."));
     LEDOFF;
 }
@@ -1492,6 +1493,10 @@ uint8_t detectAndSwitchToActiveInput()
 
         boolean stable = getStatus16SpHsStable();
         if (stable) {
+
+            // Enable power supplying to the VGA2HDMI adapter when a signal is detected
+            EnableRelayModule(true);
+
             currentInput = GBS::ADC_INPUT_SEL::read();
             SerialM.print(F("Activity detected, input: "));
             if (currentInput == 1)
@@ -6119,6 +6124,10 @@ void runSyncWatcher()
         if (rto->noSyncCounter % 150 == 0) {
             if (rto->noSyncCounter == 150 || rto->noSyncCounter % 900 == 0) {
                 SerialM.print("\nno signal\n");
+
+                // Disable power supplying to the VGA2HDMI adapter when we lose signal
+                EnableRelayModule(false);
+
                 // check whether discrete VSync is present. if so, need to go to input detect
                 uint8_t extSyncBackup = GBS::SP_EXT_SYNC_SEL::read();
                 GBS::SP_EXT_SYNC_SEL::write(0);
@@ -7870,6 +7879,32 @@ void ToggleExternalClock()
 {
     handleType2Command('X'); // Toggle 'Disable External Clock Generator' in web UI
     handleType2Command('a'); // Restart GBS-C
+}
+
+// The relay module provides power to the USB breakout board, which powers the VGA2HDMI adapter
+void EnableRelayModule(bool enable)
+{
+    if(enable == true)
+    {
+        digitalWrite(pin_relay, HIGH);
+        SerialM.println(F("Relay Module is ON"));
+    }
+    else
+    {
+        digitalWrite(pin_relay, LOW);
+        SerialM.println(F("Relay Module is OFF"));
+    }
+}
+
+// Momentarily cut power, then start it back up again
+// This functions as a reset for the VGA2HDMI adapter
+void RestartRelayModule()
+{
+    SerialM.println(F("Restarting Relay Module"));
+    digitalWrite(pin_relay, LOW);
+    delay(10);
+    digitalWrite(pin_relay, HIGH);
+    SerialM.println(F("Relay Module restart is complete"));
 }
 
 void loop()
@@ -10160,6 +10195,10 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
     {
         if(lastVideoMode != forVideoMode)
         {
+            // Reset VGA2HDMI adapter when switching video modes
+            // Sometimes it gets confused during the switch and doesn't display anything until it's powercycled
+            RestartRelayModule();
+
             forcedSlot = loadLastActivePresetSlot(forVideoMode);
         }
         else if(lastActiveSlotIndex + 1 < validSlotCount)
