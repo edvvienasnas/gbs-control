@@ -43,6 +43,8 @@ const int pin_extclk = 14; //D5 = GPIO14 SPI (SCLK)
 int extclkLastState = HIGH; // Previous state of pin_extclk
 int extclkCurrentState = HIGH; // Current state of pin_extclk
 
+const int pin_relay = 13; //D7 = GPIO13 SPI (MOSI)
+
 unsigned long lastDebounceTime = 0; 
 unsigned long debounceDelay = 50;
 
@@ -1255,6 +1257,7 @@ void goLowPowerWithInputDetection()
     prepareSyncProcessor();
     delay(100);
     rto->isInLowPowerMode = true;
+    EnableRelayModule(false);
     SerialM.println(F("Scanning inputs for sources ..."));
     LEDOFF;
 }
@@ -1490,6 +1493,10 @@ uint8_t detectAndSwitchToActiveInput()
 
         boolean stable = getStatus16SpHsStable();
         if (stable) {
+
+            // Enable power supplying to the VGA2HDMI adapter when a signal is detected
+            EnableRelayModule(true);
+
             currentInput = GBS::ADC_INPUT_SEL::read();
             SerialM.print(F("Activity detected, input: "));
             if (currentInput == 1)
@@ -7233,6 +7240,9 @@ void setup()
 #if ENABLE_BASIC_CONTROLS
     pinMode(pin_preset, INPUT_PULLUP);
     pinMode(pin_extclk, INPUT_PULLUP);
+
+    pinMode(pin_relay, OUTPUT);
+    digitalWrite(pin_relay, HIGH);
 #endif
 
 #if ENABLE_OLED
@@ -7861,10 +7871,51 @@ void CyclePreset()
     }
 }
 
+String GetVideoModeType(byte videoMode)
+{
+    if(videoMode == 1 || videoMode == 3 || videoMode == 5 || videoMode == 6)
+    {
+        return "NTSC";
+    }
+    else if(videoMode == 2 || videoMode == 4)
+    {
+        return "PAL";
+    }
+    else
+    {
+        return "other";
+    }
+}
+
 void ToggleExternalClock()
 {
     handleType2Command('X'); // Toggle 'Disable External Clock Generator' in web UI
     handleType2Command('a'); // Restart GBS-C
+}
+
+// The relay module provides power to the USB breakout board, which powers the VGA2HDMI adapter
+void EnableRelayModule(bool enable)
+{
+    if(enable == true && digitalRead(pin_relay) != HIGH)
+    {
+        digitalWrite(pin_relay, HIGH);
+        SerialM.println(F("Relay Module is ON"));
+    }
+    else if (enable == false && digitalRead(pin_relay) != LOW)
+    {
+        digitalWrite(pin_relay, LOW);
+        SerialM.println(F("Relay Module is OFF"));
+    }
+}
+
+// Momentarily cut power, then start it back up again
+// This functions as a reset for the VGA2HDMI adapter
+void RestartRelayModule()
+{
+    SerialM.println(F("Restarting Relay Module"));
+    digitalWrite(pin_relay, LOW);
+    delay(10);
+    digitalWrite(pin_relay, HIGH);
 }
 
 void loop()
@@ -10155,6 +10206,14 @@ const uint8_t *loadPresetFromSPIFFS(byte forVideoMode)
     {
         if(lastVideoMode != forVideoMode)
         {
+            // Reset VGA2HDMI adapter when switching between PAL and NTSC video modes
+            // Sometimes it gets confused during the switch and doesn't display anything until it's powercycled
+            String lastVideoModeType = GetVideoModeType(lastVideoMode);
+            if((lastVideoModeType != GetVideoModeType(forVideoMode)) && lastVideoModeType != "other")
+            {
+                RestartRelayModule();
+            }
+
             forcedSlot = loadLastActivePresetSlot(forVideoMode);
         }
         else if(lastActiveSlotIndex + 1 < validSlotCount)
